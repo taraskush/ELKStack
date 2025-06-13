@@ -1,0 +1,58 @@
+[sources.gelf_socket]
+type = "socket"
+mode = "udp"
+address = "0.0.0.0:12201"
+decoding.codec = "gelf"
+
+[transforms.parse_message]
+type = "remap"
+inputs = ["gelf_socket"]
+source = '''
+if is_string(.message) {
+  parsed_message = parse_json!(.message)
+  .inner_level = parsed_message.level
+  .inner_message = parsed_message.message
+  .service = parsed_message.service
+  .method = parsed_message.method
+  .url = parsed_message.url
+  .timestamp_inner = parsed_message.timestamp
+}
+'''
+
+[sinks.logstash]
+type = "socket"
+inputs = ["gelf_socket"]
+address = "elk-logstash-1:12201"
+mode = "udp"
+encoding.codec = "gelf"
+
+[transforms.filter_errors]
+type = "filter"
+inputs = ["parse_message"]
+condition = '.inner_level == "error"'
+
+[transforms.format_http]
+type = "remap"
+inputs = ["filter_errors"]
+source = '''
+message = string!(.inner_message)
+level = to_string!(.inner_level)
+chat_id = get_env_var!("TELEGRAM_CHAT_ID")
+. = {
+  "chat_id": chat_id,
+  "text": "Error Alert: [Level: {{level}}] {{message}}"
+}
+'''
+
+[sinks.http_sink]
+type = "http"
+inputs = ["format_http"]
+uri = "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+method = "post"
+batch.max_events = 1
+encoding.codec = "json"
+framing.method = "newline_delimited"
+request.in_flight_limit = 1
+
+[sinks.http_sink.headers]
+Content-Type = "application/json"
