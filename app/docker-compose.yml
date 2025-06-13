@@ -1,0 +1,20 @@
+services:
+  logger-app:
+    build: .
+    container_name: logger-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://host.docker.internal:12201"
+        tag: "logger-app"
+    networks:
+      - my-network
+    # restart: unless-stopped
+
+networks:
+  my-network:
+    external: true
